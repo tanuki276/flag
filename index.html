@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Flag Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input[type="text"] { padding: 8px; width: 250px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 8px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        button:disabled { background: #ccc; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 10px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card img { max-width: 100%; height: auto; border: 1px solid #eee; margin-bottom: 10px; }
+        .card a { display: block; margin-top: 5px; color: #007bff; text-decoration: none; font-size: 0.9em; }
+        #status { margin-left: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="text" id="searchInput" placeholder="国名で検索...">
+        <button id="zipBtn">全画像をZIPで一括保存</button>
+        <span id="status"></span>
+    </div>
+
+    <div id="resultGrid" class="grid"></div>
+
+<script>
+let allData = [];
+
+async function loadData() {
+    try {
+        const response = await fetch('./abcd.json');
+        if (!response.ok) throw new Error("JSONファイルが見つかりません。");
+        const json = await response.json();
+        allData = json.results.bindings;
+        render(allData);
+    } catch (err) {
+        document.getElementById('status').innerText = "エラー: " + err.message;
+        console.error(err);
+    }
+}
+
+function render(data) {
+    const grid = document.getElementById('resultGrid');
+    grid.innerHTML = '';
+    
+    data.forEach(item => {
+        const name = item.countryLabel.value;
+        const imgUrl = item.flag_image.value;
+        
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+            <strong>${name}</strong><br>
+            <img src="${imgUrl}" alt="${name}" loading="lazy"><br>
+            <a href="${imgUrl}" download="${name}.svg" target="_blank">単体ダウンロード</a>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const filtered = allData.filter(item => 
+        item.countryLabel.value.toLowerCase().includes(term)
+    );
+    render(filtered);
+});
+
+document.getElementById('zipBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('zipBtn');
+    const status = document.getElementById('status');
+    const zip = new JSZip();
+    const folder = zip.folder("flags");
+
+    btn.disabled = true;
+    status.innerText = "ダウンロード中...";
+
+    try {
+        const promises = allData.map(async (item) => {
+            const url = item.flag_image.value;
+            const name = item.countryLabel.value;
+            const res = await fetch(url);
+            const blob = await res.blob();
+            const ext = url.split('.').pop().toLowerCase();
+            folder.file(`${name}.${ext}`, blob);
+        });
+
+        await Promise.all(promises);
+        const content = await zip.generateAsync({type: "blob"});
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(content);
+        link.download = "flags_all.zip";
+        link.click();
+        
+        status.innerText = "完了";
+    } catch (err) {
+        status.innerText = "エラーが発生しました。";
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+loadData();
+</script>
+</body>
+</html>
