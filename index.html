@@ -13,14 +13,14 @@
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
         .card { background: white; padding: 10px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .card img { max-width: 100%; height: auto; border: 1px solid #eee; margin-bottom: 10px; }
-        .card a { display: block; margin-top: 5px; color: #007bff; text-decoration: none; font-size: 0.9em; }
+        .card .dl-link { display: block; margin-top: 5px; color: #007bff; text-decoration: none; font-size: 0.9em; cursor: pointer; }
         #status { margin-left: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div class="controls">
-        <input type="text" id="searchInput" placeholder="国名で検索...">
+        <input type="text" id="searchInput" placeholder="検索...">
         <button id="zipBtn">全画像をZIPで一括保存</button>
         <span id="status"></span>
     </div>
@@ -39,24 +39,45 @@ async function loadData() {
         render(allData);
     } catch (err) {
         document.getElementById('status').innerText = "エラー: " + err.message;
-        console.error(err);
+    }
+}
+
+// ヘルパー：ファイルをダウンロードさせる
+function triggerDownload(blob, filename) {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+// 単体ダウンロード用関数
+async function downloadSingle(url, name) {
+    try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const ext = url.split('.').pop().toLowerCase();
+        triggerDownload(blob, `${name}.${ext}`);
+    } catch (err) {
+        alert("ダウンロードに失敗しました。CORS制限の可能性があります。");
     }
 }
 
 function render(data) {
     const grid = document.getElementById('resultGrid');
     grid.innerHTML = '';
-    
+
     data.forEach(item => {
-        const name = item.countryLabel.value;
-        const imgUrl = item.flag_image.value;
-        
+        const name = item.itemLabel?.value || "Unknown";
+        const imgUrl = item.flag_url?.value || "";
+        if (!imgUrl) return;
+
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
             <strong>${name}</strong><br>
             <img src="${imgUrl}" alt="${name}" loading="lazy"><br>
-            <a href="${imgUrl}" download="${name}.svg" target="_blank">ダウンロード</a>
+            <span class="dl-link" onclick="downloadSingle('${imgUrl}', '${name}')">保存する</span>
         `;
         grid.appendChild(card);
     });
@@ -65,7 +86,7 @@ function render(data) {
 document.getElementById('searchInput').addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase();
     const filtered = allData.filter(item => 
-        item.countryLabel.value.toLowerCase().includes(term)
+        (item.itemLabel?.value || "").toLowerCase().includes(term)
     );
     render(filtered);
 });
@@ -79,31 +100,28 @@ document.getElementById('zipBtn').addEventListener('click', async () => {
     btn.disabled = true;
     status.innerText = "ダウンロード中...";
 
-    try {
-        const promises = allData.map(async (item) => {
-            const url = item.flag_image.value;
-            const name = item.countryLabel.value;
+    const promises = allData.map(async (item) => {
+        const url = item.flag_url?.value;
+        const name = item.itemLabel?.value || "Unknown";
+        if (!url) return;
+
+        try {
             const res = await fetch(url);
+            if (!res.ok) return;
             const blob = await res.blob();
             const ext = url.split('.').pop().toLowerCase();
             folder.file(`${name}.${ext}`, blob);
-        });
+        } catch (e) {
+            console.error("Skip:", name);
+        }
+    });
 
-        await Promise.all(promises);
-        const content = await zip.generateAsync({type: "blob"});
-        
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(content);
-        link.download = "flags.zip";
-        link.click();
-        
-        status.innerText = "完了";
-    } catch (err) {
-        status.innerText = "エラーが発生しました。";
-        console.error(err);
-    } finally {
-        btn.disabled = false;
-    }
+    await Promise.all(promises);
+    const content = await zip.generateAsync({type: "blob"});
+    triggerDownload(content, "flags.zip");
+
+    status.innerText = "完了";
+    btn.disabled = false;
 });
 
 loadData();
